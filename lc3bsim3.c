@@ -33,12 +33,21 @@ void eval_bus_drivers();
 void drive_bus();
 void latch_datapath_values();
 void evaluate();
+void math(int iR);
+void regFile(int iR);
+void other(int iR);
+int SEXT(int immediateLength, int num);
 int isReadyInstruction(int n);
 void latchNext(int state);
 int decipherState(int j5, int j4, int j3, int j2, int j1, int j0);
 int mask1(int bin);
+int mask2(int bin)
 int mask3(int bin);
 int mask4(int bin);
+int mask5(int bin);
+int mask6(int bin);
+int mask9(int bin);
+int mask11(int bin);
 
 /***************************************************************/
 /* A couple of useful definitions.                             */
@@ -590,7 +599,7 @@ int SHFOut = 0;
 int ALUOut = 0;
 int ADDR1MuxOut = 0;
 int ADDR2MuxOut = 0;
-int PCMuxOut = 0;
+int PCOut = 0;
 int PlusOut = 0;
 int MARMuxOut = 0;
 int MDRLogicOut = 0;
@@ -637,12 +646,16 @@ void cycle_memory()
 	}
 	else if (flag == 1)
 	{
-		if (memCycle = MEM_CYCLES - 1)
+		if (memCycle == MEM_CYCLES - 1)
 		{
 			NEXT_LATCHES.READY = 1;
 			flag = 0;
 		}
-		else memCycle++;
+		else
+		{
+			NEXT_LATCHES.READY = 0;
+			memCycle++;
+		}
 	}
   /*
    * This function emulates memory and the WE logic.
@@ -657,12 +670,9 @@ void cycle_memory()
 
 void eval_bus_drivers()
 {
-	if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN] == 0) evaluate();
-	else
-	{
-		evaluate();
-		evaluateMemory();
-	}
+	regFile(CURRENT_LATCHES.IR);
+	math(CURRENT_LATCHES.IR);
+	other(CURRENT_LATCHES.IR);
   /*
    * Datapath routine emulating operations before driving the bus.
    * Evaluate the input of tristate drivers
@@ -678,7 +688,12 @@ void eval_bus_drivers()
 
 void drive_bus()
 {
-
+	if (GetGATE_MARMUX(CURRENT_LATCHES.MICROINSTRUCTION) == 1) BUS = Low16bits(MARMuxOut);
+	else if (GetGATE_PC(CURRENT_LATCHES.MICROINSTRUCTION) == 1) BUS = Low16bits(PCOut);
+	else if (GetGATE_ALU(CURRENT_LATCHES.MICROINSTRUCTION) == 1) BUS = Low16bits(ALUOut);
+	else if (GetGATE_SHF(CURRENT_LATCHES.MICROINSTRUCTION) == 1) BUS = Low16bits(SHFOut);
+	else if (GetGATE_MDR(CURRENT_LATCHES.MICROINSTRUCTION) == 1) BUS = Low16bits(MDRLogicOut);
+	else BUS = 0;
   /*
    * Datapath routine for driving the bus from one of the 5 possible
    * tristate drivers.
@@ -687,8 +702,22 @@ void drive_bus()
 }
 
 
-void latch_datapath_values() {
+void latch_datapath_values()
+{
+	if (CURRENT_LATCHES.MICROINSTRUCTION[LD_IR] == 1)
+	{
+		NEXT_LATCHES.IR = Low16bits(BUS);
+	}
+	else NEXT_LATCHES.IR = CURRENT_LATCHES.IR;
 
+	if (CURRENT_LATCHES.MICROINSTRUCTION[LD_REG] == 1)
+	{
+		int DRMuxSelect = CURRENT_LATCHES.MICROINSTRUCTION[DRMUX];
+		if (DRMuxSelect == 0) CURRENT_LATCHES.REGS[mask3(iR >> 9)] = Low16bits(BUS);
+		else if (DRMuxSelect == 1) CURRENT_LATCHES.REGS[7] = Low16bits(BUS);
+	}
+	else NEXT_LATCHES.REGS = CURRENT_LATCHES.REGS;
+	pc... mdr...
   /*
    * Datapath routine for computing all functions that need to latch
    * values in the data path at the end of this cycle.  Some values
@@ -697,34 +726,98 @@ void latch_datapath_values() {
    */
 
 }
-void evaluate()
-{
-	int iR = CURRENT_LATCHES.IR
-	regFile(iR);
-	int ALUSelect = GetALUK(CURRENT_LATCHES.MICROINSTRUCTION)
-	if (mask1(iR >> 5) == 1) SR2MuxOut = Low16bits(SEXT(mask5(iR)));
-	else if (mask1(iR >> 5) == 0) SR2MuxOut = SR2Out;
-	if (ALUSelect == 0) ALUOut = Low16bits(SR2MuxOut + SR1Out);
-	else if (ALUSelect == 1) ALUOut = SR2MuxOut & SR1Out;
-	else if (ALUSelect == 2) ALUOut = SR2MuxOut ^ SR1Out;
-	else if (ALUSelect == 3) ALUOut = SR1Out;
-}
 
 void regFile(int iR)
 {
-	if (CURRENT_LATCHES.MICROINSTRUCTION[LD_REG] == 1)
-	{
-		REGS[mask3(iR >> 9)] = Low16bits(BUS);
-	}
-	if (CURRENT_LATCHES.MICROINSTRUCTION[SR1MUX] == 0)
+	int SR1MUXSelect = CURRENT_LATCHES.MICROINSTRUCTION[SR1MUX];
+	if (SR1MUXSelect == 0)
 	{
 		SR1Out = REGS[mask3(iR >> 9)];
 	}
-	else if (CURRENT_LATCHES.MICROINSTRUCTION[SR1MUX] == 1)
+	else if (SR1MUXSelect == 1)
 	{
 		SR1Out = REGS[mask3(iR >> 6)];
 	}
 	SR2Out = REGS[mask3(iR)];
+}
+
+void math(int iR)
+{
+	if (mask1(iR >> 5) == 1) SR2MuxOut = Low16bits(SEXT(5, mask5(iR)));
+	else if (mask1(iR >> 5) == 0) SR2MuxOut = SR2Out;
+
+	int ALUSelect = GetALUK(CURRENT_LATCHES.MICROINSTRUCTION);
+	if (ALUSelect == 0) ALUOut = Low16bits(SR2MuxOut + SR1Out);
+	else if (ALUSelect == 1) ALUOut = SR2MuxOut & SR1Out;
+	else if (ALUSelect == 2) ALUOut = SR2MuxOut ^ SR1Out;
+	else if (ALUSelect == 3) ALUOut = SR1Out;
+
+	if (mask2(iR >> 4) == 0) SHFOut = SR1Out << mask4(iR);
+	else if (mask2(iR >> 4) == 1) SHFOut = SR1Out >> mask4(iR);
+	else if (mask2(iR >> 4) == 3)
+	{
+		SHFOut = SR1Out;
+		amountToShift = mask4(iR)
+		signBit = (SR1Out & 0x8000);
+          	while (amountToShift > 0)
+          	{
+            	SHFOut = SHFOut >> 1;
+            	SHFOut = SHFOut | signBit;
+            	amountToShift--;
+          	}
+	}
+}
+
+void other(int iR)
+{
+	int ADDR1MuxSelect = GetADDR1MUX(CURRENT_LATCHES.MICROINSTRUCTION);
+	if (ADDR1MuxSelect == 0) ADDR1MuxOut = CURRENT_LATCHES.PC;
+	else if (ADDR1MuxSelect == 1) ADDR1MuxOut = SR1Out;
+
+	int ADDR2MuxSelect = GetADDR2MUX(CURRENT_LATCHES.MICROINSTRUCTION);
+	if (ADDR2MuxSelect == 0) ADDR2MuxOut = 0;
+	else if (ADDR2MuxSelect == 1) ADDR2MuxOut = Low16bits(SEXT(6, mask6(iR)));
+	else if (ADDR2MuxSelect == 2) ADDR2MuxOut = Low16bits(SEXT(9, mask9(iR)));
+	else if (ADDR2MuxSelect == 3) ADDR2MuxOut = Low16bits(SEXT(11, mask11(iR)));
+
+	int LSHFSelect = GetLSHF1(CURRENT_LATCHES.MICROINSTRUCTION);
+	if (LSHFSelect == 0) PlusOut = ADDR1MuxOut + ADDR2MuxOut;
+	else if (LSHFSelect == 1) PlusOut = ADDR1MuxOut + (ADDR2MuxOut << 1);
+
+	int MARMUXSelect = GetMARMUX(CURRENT_LATCHES.MICROINSTRUCTION);
+	if (MARMUXSelect == 0) MARMuxOut = Low16bits(mask8(iR) << 1);
+	else if (MARMUXSelect == 1) MARMuxOut = PlusOut;
+
+	if (GetDATA_SIZE(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
+	{
+		int MARZero = CURRENT_LATCHES.MAR % 2;
+		if (MARZero == 0) MDRLogicOut = mask8(CURRENT_LATCHES.MDR);
+		else if (MARZero == 1) MDRLogicOut = mask8(CURRENT_LATCHES.MDR >> 8);
+	}
+	else if (GetDATA_SIZE(CURRENT_LATCHES.MICROINSTRUCTION) == 1) MDRLogicOut = CURRENT_LATCHES.MDR;
+	PCOut = CURRENT_LATCHES.PC;
+}
+
+int SEXT(int immediateLength, int num)
+{
+  	int tempNum = num;
+  	int amountToShift = 16 - immediateLength;
+  	int check = (tempNum >> (immediateLength-1)) & 0x0001;
+  	if (check == 0x0000)
+	{
+    		return num;
+  	}
+  	else
+  	{
+    		int starter = 0x8000;
+    		while (amountToShift > 0)
+    		{
+      		num = num | starter;
+      		amountToShift--;
+      		starter = starter >> 1;
+    		}
+    	return num;
+  	}
 }
 
 int isReadyInstruction(int n)
@@ -751,6 +844,11 @@ int mask1(int bin)
 	return (bin & 0x0001);
 }
 
+int mask2(int bin)
+{
+	return (bin & 0x0003);
+}
+
 int mask3(int bin)
 {
 	return (bin & 0x0007);
@@ -759,4 +857,20 @@ int mask3(int bin)
 int mask4(int bin)
 {
 	return (bin & 0x000F);
+}
+int mask5(int bin)
+{
+	return (bin & 0x001F);
+}
+int mask6(int bin)
+{
+	return (bin & 0x003F);
+}
+int mask9(int bin)
+{
+	return (bin & 0x01FF);
+}
+int mask11(int bin)
+{
+	return (bin & 0x03FF);
 }
