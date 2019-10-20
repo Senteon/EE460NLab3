@@ -32,9 +32,12 @@ void cycle_memory();
 void eval_bus_drivers();
 void drive_bus();
 void latch_datapath_values();
+void evaluate();
+int isReadyInstruction(int n);
 void latchNext(int state);
 int decipherState(int j5, int j4, int j3, int j2, int j1, int j0);
 int mask1(int bin);
+int mask3(int bin);
 int mask4(int bin);
 
 /***************************************************************/
@@ -578,10 +581,23 @@ int main(int argc, char *argv[]) {
    Begin your code here 	  			       */
 /***************************************************************/
 
+int nextInstruction = 0;
+int flag = 0;
+int SR1Out = 0;
+int SR2Out = 0;
+int SR2MuxOut = 0;
+int SHFOut = 0;
+int ALUOut = 0;
+int ADDR1MuxOut = 0;
+int ADDR2MuxOut = 0;
+int PCMuxOut = 0;
+int PlusOut = 0;
+int MARMuxOut = 0;
+int MDRLogicOut = 0;
+
 
 void eval_micro_sequencer()
 {
-	int nextInstruction = 0;
 	if (CURRENT_LATCHES.MICROINSTRUCTION[IRD] == 1)
 	{
 		nextInstruction = mask4(CURRENT_LATCHES.IR >> 12);
@@ -612,8 +628,22 @@ void eval_micro_sequencer()
 }
 
 
-void cycle_memory() {
-
+void cycle_memory()
+{
+	if ((isReadyInstruction(nextInstruction) == 1) && flag == 0)
+	{
+		memCycle = -1;
+		flag = 1;
+	}
+	else if (flag == 1)
+	{
+		if (memCycle = MEM_CYCLES - 1)
+		{
+			NEXT_LATCHES.READY = 1;
+			flag = 0;
+		}
+		else memCycle++;
+	}
   /*
    * This function emulates memory and the WE logic.
    * Keep track of which cycle of MEMEN we are dealing with.
@@ -625,12 +655,18 @@ void cycle_memory() {
 
 
 
-void eval_bus_drivers() {
-
+void eval_bus_drivers()
+{
+	if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN] == 0) evaluate();
+	else
+	{
+		evaluate();
+		evaluateMemory();
+	}
   /*
    * Datapath routine emulating operations before driving the bus.
    * Evaluate the input of tristate drivers
-   *             Gate_MARMUX,
+   *         Gate_MARMUX,
    *		 Gate_PC,
    *		 Gate_ALU,
    *		 Gate_SHF,
@@ -661,6 +697,41 @@ void latch_datapath_values() {
    */
 
 }
+void evaluate()
+{
+	int iR = CURRENT_LATCHES.IR
+	regFile(iR);
+	int ALUSelect = GetALUK(CURRENT_LATCHES.MICROINSTRUCTION)
+	if (mask1(iR >> 5) == 1) SR2MuxOut = Low16bits(SEXT(mask5(iR)));
+	else if (mask1(iR >> 5) == 0) SR2MuxOut = SR2Out;
+	if (ALUSelect == 0) ALUOut = Low16bits(SR2MuxOut + SR1Out);
+	else if (ALUSelect == 1) ALUOut = SR2MuxOut & SR1Out;
+	else if (ALUSelect == 2) ALUOut = SR2MuxOut ^ SR1Out;
+	else if (ALUSelect == 3) ALUOut = SR1Out;
+}
+
+void regFile(int iR)
+{
+	if (CURRENT_LATCHES.MICROINSTRUCTION[LD_REG] == 1)
+	{
+		REGS[mask3(iR >> 9)] = Low16bits(BUS);
+	}
+	if (CURRENT_LATCHES.MICROINSTRUCTION[SR1MUX] == 0)
+	{
+		SR1Out = REGS[mask3(iR >> 9)];
+	}
+	else if (CURRENT_LATCHES.MICROINSTRUCTION[SR1MUX] == 1)
+	{
+		SR1Out = REGS[mask3(iR >> 6)];
+	}
+	SR2Out = REGS[mask3(iR)];
+}
+
+int isReadyInstruction(int n)
+{
+	if (n == 33 || n == 28 || n == 29 || n == 25 || n == 16 || n == 17) return 1;
+	else return 0;
+}
 
 void latchNext(int state)
 {
@@ -678,6 +749,11 @@ int decipherState(int j5, int j4, int j3, int j2, int j1, int j0)
 int mask1(int bin)
 {
 	return (bin & 0x0001);
+}
+
+int mask3(int bin)
+{
+	return (bin & 0x0007);
 }
 
 int mask4(int bin)
