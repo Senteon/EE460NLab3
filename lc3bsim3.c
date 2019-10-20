@@ -41,7 +41,7 @@ int isReadyInstruction(int n);
 void latchNext(int state);
 int decipherState(int j5, int j4, int j3, int j2, int j1, int j0);
 int mask1(int bin);
-int mask2(int bin)
+int mask2(int bin);
 int mask3(int bin);
 int mask4(int bin);
 int mask5(int bin);
@@ -603,6 +603,7 @@ int PCOut = 0;
 int PlusOut = 0;
 int MARMuxOut = 0;
 int MDRLogicOut = 0;
+int MEMOut = 0;
 
 
 void eval_micro_sequencer()
@@ -634,14 +635,19 @@ void eval_micro_sequencer()
 		nextInstruction = decipherState(j5, j4, j3, j2, j1, j0);
 		latchNext(nextInstruction);
 	}
+      int iR = CURRENT_LATCHES.IR;
+      int n = CURRENT_LATCHES.N;
+      int z = CURRENT_LATCHES.Z;
+      int p = CURRENT_LATCHES.P;
+      NEXT_LATCHES.BEN = ((mask1(IR >> 11) & N) | (mask1(IR >> 10) & Z) | (mask1(IR >> 9) & P));
 }
 
 
 void cycle_memory()
 {
-	if ((isReadyInstruction(nextInstruction) == 1) && flag == 0)
+	if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN]) && (flag == 0) && (CURRENT_LATCHES.READY != 1))
 	{
-		memCycle = -1;
+		memCycle = 0;
 		flag = 1;
 	}
 	else if (flag == 1)
@@ -657,6 +663,40 @@ void cycle_memory()
 			memCycle++;
 		}
 	}
+      if (CURRENT_LATCHES.READY == 1)
+            if (CURRENT_LATCHES.MICROINSTRUCTION[R_W] == 0)
+            {
+                  if (CURRENT_LATCHES.MICROINSTRUCTION[DATA_SIZE] == 0)
+                  {
+                        if (mask1(CURRENT_LATCHES.MAR) == 0)
+                        {
+                              MEMOut = mask8(MEMORY[CURRENT_LATCHES.MAR/2][0]);
+                        }
+                        else MEMOut = mask8(MEMORY[CURRENT_LATCHES.MAR/2][1]);
+                  }
+                  else
+                  {
+                        MEMOut = Low16bits(MEMORY[CURRENT_LATCHES.MAR/2][0])
+                        MEMOut += Low16bits(MEMORY[CURRENT_LATCHES.MAR/2][1] << 8)
+                  }
+            }
+            else
+            {
+                  if (CURRENT_LATCHES.MICROINSTRUCTION[DATA_SIZE] == 0)
+                  {
+                        if (mask1(CURRENT_LATCHES.MAR) == 0)
+                        {
+                              MEMORY[CURRENT_LATCHES.MAR/2][0] = mask8(CURRENT_LATCHES.MDR);
+                        }
+                        else MEMORY[CURRENT_LATCHES.MAR/2][1] = mask8(CURRENT_LATCHES.MDR);
+                  }
+                  else
+                  {
+                        MEMORY[CURRENT_LATCHES.MAR/2][0] = mask8(CURRENT_LATCHES.MDR);
+                        MEMORY[CURRENT_LATCHES.MAR/2][1] = mask8(CURRENT_LATCHES.MDR >> 8);
+                  }
+            }
+      }
   /*
    * This function emulates memory and the WE logic.
    * Keep track of which cycle of MEMEN we are dealing with.
@@ -676,7 +716,7 @@ void eval_bus_drivers()
   /*
    * Datapath routine emulating operations before driving the bus.
    * Evaluate the input of tristate drivers
-   *         Gate_MARMUX,
+   *     Gate_MARMUX,
    *		 Gate_PC,
    *		 Gate_ALU,
    *		 Gate_SHF,
@@ -717,7 +757,44 @@ void latch_datapath_values()
 		else if (DRMuxSelect == 1) CURRENT_LATCHES.REGS[7] = Low16bits(BUS);
 	}
 	else NEXT_LATCHES.REGS = CURRENT_LATCHES.REGS;
-	pc... mdr...
+
+  if (CURRENT_LATCHES.MICROINSTRUCTION[LD_PC] == 1)
+  {
+          int PCMuxSelect = GetPCMUX(CURRENT_LATCHES.MICROINSTRUCTION);
+          if (PCMuxSelect == 0) NEXT_LATCHES.PC = Low16bits(CURRENT_LATCHES.PC + 2);
+          else if (PCMuxSelect == 1) NEXT_LATCHES.PC = Low16bits(BUS);
+          else if (PCMuxSelect == 2) NEXT_LATCHES.PC = Low16bits(PlusOut);
+  }
+  else NEXT_LATCHES.PC = CURRENT_LATCHES.PC;
+
+  if (CURRENT_LATCHES.MICROINSTRUCTION[LD_CC] == 1)
+  {
+          if (Low16bits(mask1((BUS) >> 15)) == 1) SetCC('N');
+          else if (Low16bits(BUS) == 1) SetCC('Z');
+          else SetCC('P');
+  }
+  else NEXT_LATCHES.CC = CURRENT_LATCHES.CC;
+
+  if (CURRENT_LATCHES.MICROINSTRUCTION[LD_MAR] == 1)
+  {
+        NEXT_LATCHES.MAR = Low16bits(BUS);
+  }
+  else NEXT_LATCHES.MAR = CURRENT_LATCHES.MAR;
+
+  if (CURRENT_LATCHES.MICROINSTRUCTION[LD_MDR] == 1)
+  {
+        if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN] == 0)
+        {
+            if (CURRENT_LATCHES.MICROINSTRUCTION[DATA_SIZE] == 0)
+            {
+                  if (mask1(CURRENT_LATCHES.MAR) == 0) NEXT_LATCHES.MDR = mask8(BUS);
+                  else NEXT_LATCHES.MDR = mask8(BUS >> 8);
+            }
+            else NEXT_LATCHES.MDR = Low16bits(BUS);
+        }
+        else NEXT_LATCHES.MDR = MEMOut;
+  }
+  else NEXT_LATCHES.MDR = CURRENT_LATCHES.MDR;
   /*
    * Datapath routine for computing all functions that need to latch
    * values in the data path at the end of this cycle.  Some values
@@ -804,7 +881,7 @@ int SEXT(int immediateLength, int num)
   	int amountToShift = 16 - immediateLength;
   	int check = (tempNum >> (immediateLength-1)) & 0x0001;
   	if (check == 0x0000)
-	{
+	  {
     		return num;
   	}
   	else
@@ -816,14 +893,30 @@ int SEXT(int immediateLength, int num)
       		amountToShift--;
       		starter = starter >> 1;
     		}
-    	return num;
+    	  return num;
   	}
 }
 
-int isReadyInstruction(int n)
+void setCC(char cc)
 {
-	if (n == 33 || n == 28 || n == 29 || n == 25 || n == 16 || n == 17) return 1;
-	else return 0;
+  if (cc == 'N')
+  {
+    NEXT_LATCHES.N = 1;
+    NEXT_LATCHES.Z = 0;
+    NEXT_LATCHES.P = 0;
+  }
+  if (cc == 'Z')
+  {
+    NEXT_LATCHES.N = 0;
+    NEXT_LATCHES.Z = 1;
+    NEXT_LATCHES.P = 0;
+  }
+  if (cc == 'P')
+  {
+    NEXT_LATCHES.N = 0;
+    NEXT_LATCHES.Z = 0;
+    NEXT_LATCHES.P = 1;
+  }
 }
 
 void latchNext(int state)
