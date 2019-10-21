@@ -38,14 +38,17 @@ void regFile(int iR);
 void other(int iR);
 int SEXT(int immediateLength, int num);
 int isReadyInstruction(int n);
+void latchRegs();
 void latchNext(int state);
 int decipherState(int j5, int j4, int j3, int j2, int j1, int j0);
+void setCC(char cc);
 int mask1(int bin);
 int mask2(int bin);
 int mask3(int bin);
 int mask4(int bin);
 int mask5(int bin);
 int mask6(int bin);
+int mask8(int bin);
 int mask9(int bin);
 int mask11(int bin);
 
@@ -604,7 +607,7 @@ int PlusOut = 0;
 int MARMuxOut = 0;
 int MDRLogicOut = 0;
 int MEMOut = 0;
-
+int memCycle = 0;
 
 void eval_micro_sequencer()
 {
@@ -639,24 +642,19 @@ void eval_micro_sequencer()
       int n = CURRENT_LATCHES.N;
       int z = CURRENT_LATCHES.Z;
       int p = CURRENT_LATCHES.P;
-      NEXT_LATCHES.BEN = ((mask1(IR >> 11) & N) | (mask1(IR >> 10) & Z) | (mask1(IR >> 9) & P));
+      NEXT_LATCHES.BEN = ((mask1(iR >> 11) & n) | (mask1(iR >> 10) & z) | (mask1(iR >> 9) & p));
 }
 
 
 void cycle_memory()
 {
-	if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN]) && (flag == 0) && (CURRENT_LATCHES.READY != 1))
-	{
-		memCycle = 0;
-		flag = 1;
-	}
-	else if (flag == 1)
-	{
-		if (memCycle == MEM_CYCLES - 1)
-		{
-			NEXT_LATCHES.READY = 1;
-			flag = 0;
-		}
+      if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN])
+      {
+	     if (memCycle == MEM_CYCLES - 1)
+	     {
+                 NEXT_LATCHES.READY = 1;
+		     memCycle = 1;
+	     }
 		else
 		{
 			NEXT_LATCHES.READY = 0;
@@ -664,21 +662,11 @@ void cycle_memory()
 		}
 	}
       if (CURRENT_LATCHES.READY == 1)
+      {
             if (CURRENT_LATCHES.MICROINSTRUCTION[R_W] == 0)
             {
-                  if (CURRENT_LATCHES.MICROINSTRUCTION[DATA_SIZE] == 0)
-                  {
-                        if (mask1(CURRENT_LATCHES.MAR) == 0)
-                        {
-                              MEMOut = mask8(MEMORY[CURRENT_LATCHES.MAR/2][0]);
-                        }
-                        else MEMOut = mask8(MEMORY[CURRENT_LATCHES.MAR/2][1]);
-                  }
-                  else
-                  {
-                        MEMOut = Low16bits(MEMORY[CURRENT_LATCHES.MAR/2][0])
-                        MEMOut += Low16bits(MEMORY[CURRENT_LATCHES.MAR/2][1] << 8)
-                  }
+                  MEMOut = Low16bits(MEMORY[CURRENT_LATCHES.MAR/2][0]);
+                  MEMOut |= Low16bits(MEMORY[CURRENT_LATCHES.MAR/2][1] << 8);
             }
             else
             {
@@ -688,7 +676,7 @@ void cycle_memory()
                         {
                               MEMORY[CURRENT_LATCHES.MAR/2][0] = mask8(CURRENT_LATCHES.MDR);
                         }
-                        else MEMORY[CURRENT_LATCHES.MAR/2][1] = mask8(CURRENT_LATCHES.MDR);
+                        else MEMORY[CURRENT_LATCHES.MAR/2][1] = mask8(CURRENT_LATCHES.MDR >> 8);
                   }
                   else
                   {
@@ -703,7 +691,6 @@ void cycle_memory()
    * If fourth, we need to latch Ready bit at the end of
    * cycle to prepare microsequencer for the fifth cycle.
    */
-
 }
 
 
@@ -753,10 +740,10 @@ void latch_datapath_values()
 	if (CURRENT_LATCHES.MICROINSTRUCTION[LD_REG] == 1)
 	{
 		int DRMuxSelect = CURRENT_LATCHES.MICROINSTRUCTION[DRMUX];
-		if (DRMuxSelect == 0) CURRENT_LATCHES.REGS[mask3(iR >> 9)] = Low16bits(BUS);
-		else if (DRMuxSelect == 1) CURRENT_LATCHES.REGS[7] = Low16bits(BUS);
+		if (DRMuxSelect == 0) NEXT_LATCHES.REGS[mask3(CURRENT_LATCHES.IR >> 9)] = Low16bits(BUS);
+		else if (DRMuxSelect == 1) NEXT_LATCHES.REGS[7] = Low16bits(BUS);
 	}
-	else NEXT_LATCHES.REGS = CURRENT_LATCHES.REGS;
+	else latchRegs();
 
   if (CURRENT_LATCHES.MICROINSTRUCTION[LD_PC] == 1)
   {
@@ -769,11 +756,16 @@ void latch_datapath_values()
 
   if (CURRENT_LATCHES.MICROINSTRUCTION[LD_CC] == 1)
   {
-          if (Low16bits(mask1((BUS) >> 15)) == 1) SetCC('N');
-          else if (Low16bits(BUS) == 1) SetCC('Z');
-          else SetCC('P');
+          if (Low16bits(mask1((BUS) >> 15)) == 1) setCC('N');
+          else if (Low16bits(BUS) == 0) setCC('Z');
+          else setCC('P');
   }
-  else NEXT_LATCHES.CC = CURRENT_LATCHES.CC;
+  else
+  {
+        NEXT_LATCHES.N = CURRENT_LATCHES.N;
+        NEXT_LATCHES.Z = CURRENT_LATCHES.Z;
+        NEXT_LATCHES.P = CURRENT_LATCHES.P;
+  }
 
   if (CURRENT_LATCHES.MICROINSTRUCTION[LD_MAR] == 1)
   {
@@ -787,8 +779,7 @@ void latch_datapath_values()
         {
             if (CURRENT_LATCHES.MICROINSTRUCTION[DATA_SIZE] == 0)
             {
-                  if (mask1(CURRENT_LATCHES.MAR) == 0) NEXT_LATCHES.MDR = mask8(BUS);
-                  else NEXT_LATCHES.MDR = mask8(BUS >> 8);
+                  NEXT_LATCHES.MDR = mask8(BUS) + (mask8(BUS) << 8);
             }
             else NEXT_LATCHES.MDR = Low16bits(BUS);
         }
@@ -809,13 +800,13 @@ void regFile(int iR)
 	int SR1MUXSelect = CURRENT_LATCHES.MICROINSTRUCTION[SR1MUX];
 	if (SR1MUXSelect == 0)
 	{
-		SR1Out = REGS[mask3(iR >> 9)];
+		SR1Out = NEXT_LATCHES.REGS[mask3(iR >> 9)];
 	}
 	else if (SR1MUXSelect == 1)
 	{
-		SR1Out = REGS[mask3(iR >> 6)];
+		SR1Out = NEXT_LATCHES.REGS[mask3(iR >> 6)];
 	}
-	SR2Out = REGS[mask3(iR)];
+	SR2Out = NEXT_LATCHES.REGS[mask3(iR)];
 }
 
 void math(int iR)
@@ -834,8 +825,8 @@ void math(int iR)
 	else if (mask2(iR >> 4) == 3)
 	{
 		SHFOut = SR1Out;
-		amountToShift = mask4(iR)
-		signBit = (SR1Out & 0x8000);
+		int amountToShift = mask4(iR);
+		int signBit = (SR1Out & 0x8000);
           	while (amountToShift > 0)
           	{
             	SHFOut = SHFOut >> 1;
@@ -879,7 +870,7 @@ int SEXT(int immediateLength, int num)
 {
   	int tempNum = num;
   	int amountToShift = 16 - immediateLength;
-  	int check = (tempNum >> (immediateLength-1)) & 0x0001;
+  	int check = (tempNum >> (immediateLength - 1)) & 0x0001;
   	if (check == 0x0000)
 	  {
     		return num;
@@ -918,13 +909,14 @@ void setCC(char cc)
     NEXT_LATCHES.P = 1;
   }
 }
-
+void latchRegs()
+{
+      memcpy(NEXT_LATCHES.REGS, CURRENT_LATCHES.REGS, sizeof(int)*LC_3b_REGS);
+}
 void latchNext(int state)
 {
-	for (int i = 0; i < CONTROL_STORE_BITS; i++)
-	{
-		NEXT_LATCHES.MICROINSTRUCTION[i] = CONTROL_STORE[state][i];
-	}
+      NEXT_LATCHES.STATE_NUMBER = state;
+	memcpy(NEXT_LATCHES.MICROINSTRUCTION, CONTROL_STORE[state], sizeof(int)*CONTROL_STORE_BITS);
 }
 
 int decipherState(int j5, int j4, int j3, int j2, int j1, int j0)
@@ -958,6 +950,10 @@ int mask5(int bin)
 int mask6(int bin)
 {
 	return (bin & 0x003F);
+}
+int mask8(int bin)
+{
+	return (bin & 0x00FF);
 }
 int mask9(int bin)
 {
