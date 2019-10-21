@@ -859,8 +859,8 @@ void other(int iR)
 	if (GetDATA_SIZE(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
 	{
 		int MARZero = CURRENT_LATCHES.MAR % 2;
-		if (MARZero == 0) MDRLogicOut = mask8(CURRENT_LATCHES.MDR);
-		else if (MARZero == 1) MDRLogicOut = mask8(CURRENT_LATCHES.MDR >> 8);
+		if (MARZero == 0) MDRLogicOut = SEXT(8, mask8(CURRENT_LATCHES.MDR));
+		else if (MARZero == 1) MDRLogicOut = SEXT(8, mask8(CURRENT_LATCHES.MDR >> 8));
 	}
 	else if (GetDATA_SIZE(CURRENT_LATCHES.MICROINSTRUCTION) == 1) MDRLogicOut = CURRENT_LATCHES.MDR;
 	PCOut = CURRENT_LATCHES.PC;
