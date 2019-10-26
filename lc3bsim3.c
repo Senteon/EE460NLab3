@@ -607,7 +607,7 @@ int PlusOut = 0;
 int MARMuxOut = 0;
 int MDRLogicOut = 0;
 int MEMOut = 0;
-int memCycle = 0;
+int memCycle = 1;
 
 void eval_micro_sequencer()
 {
