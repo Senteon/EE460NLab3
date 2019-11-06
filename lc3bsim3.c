@@ -648,12 +648,12 @@ void eval_micro_sequencer()
 
 void cycle_memory()
 {
-      if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN])
+      if (CURRENT_LATCHES.MICROINSTRUCTION[MIO_EN] == 1)
       {
 	     if (memCycle == MEM_CYCLES - 1)
 	     {
                  NEXT_LATCHES.READY = 1;
-		     memCycle = 1;
+                 memCycle = 0;
 	     }
 		else
 		{
